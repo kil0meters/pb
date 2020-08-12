@@ -1,5 +1,7 @@
+#include <argp.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <curl/curl.h>
 
@@ -9,7 +11,42 @@
 
 #include "log.h"
 
-int main() {
+const char *argp_program_version = "pb v0.1";
+const char *argp_program_bug_address = "<kilo@meters.sh>";
+static char doc[] = "Allows you to quickly post files to pastebin";
+static char args_doc[] = "[FILENAME]...";
+static struct argp_option options[] = {
+    { "edit",     'e', 0, 0, "Open a file with $EDITOR in /tmp/ then upload it"},
+    { "filetype", 'f', 0, 0, "Manually set filetype"},
+    { 0 }
+};
+
+struct arguments {
+  char *filetype;
+  bool use_editor;
+};
+
+static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+  struct arguments *arguments = state->input;
+  switch (key) {
+    case 'e': arguments->use_editor = true; break;
+    case 'f': arguments->filetype = "python"; break;
+    case ARGP_KEY_ARG: return 0;
+    default: return ARGP_ERR_UNKNOWN;
+  }
+  return 0;
+}
+
+static struct argp argp = { options, parse_opt, args_doc, doc, 0, 0, 0 };
+
+int main(int argc, char **argv) {
+  struct arguments arguments;
+
+  arguments.filetype = "";
+  arguments.use_editor = false;
+
+  argp_parse(&argp, argc, argv, 0, 0, &arguments);
+
   int buffer_size = 16;
   char *data = (char*) malloc(buffer_size);
   int string_size = 0;
