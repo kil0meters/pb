@@ -22,6 +22,7 @@ static struct argp_option options[] = {
 };
 
 struct arguments {
+  char *file;
   char *filetype;
   bool use_editor;
 };
@@ -31,7 +32,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
   switch (key) {
     case 'e': arguments->use_editor = true; break;
     case 'f': arguments->filetype = "python"; break;
-    case ARGP_KEY_ARG: return 0;
+    case ARGP_KEY_ARG: arguments->file = arg; break;
     default: return ARGP_ERR_UNKNOWN;
   }
   return 0;
@@ -39,48 +40,71 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 
 static struct argp argp = { options, parse_opt, args_doc, doc, 0, 0, 0 };
 
+static bool upload_file(FILE *stream, char *filetype) {
+  bool success = true;
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    log_error("Could not initalize cURL.");
+    return false;
+  }
+
+  // Get file size
+  fseek(stream, 0L, SEEK_END);
+  unsigned long buffer_size = ftell(stream);
+  rewind(stream);
+
+  // Another approach would be to allocate 3*buffer_size+77 which would be the
+  // theoretical maximum size a buffer could be to save a realloc.
+  char *buffer = malloc(sizeof(char) * buffer_size);
+
+  // read whole file into buffer
+  fgets(buffer, buffer_size, stream);
+
+  char *encoded_buffer = curl_easy_escape(curl, buffer, buffer_size);
+  char *post_data = realloc(encoded_buffer, strlen(encoded_buffer) + 512); // (char*) malloc(77 + strlen(url_encoded_data));
+
+  strcat("api_dev_key=" API_DEV_KEY "&api_option=paste&api_paste_code=", encoded_buffer);
+
+  curl_easy_setopt(curl, CURLOPT_URL, "https://pastebin.com/api/api_post.php");
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+
+  CURLcode res = curl_easy_perform(curl);
+
+  if (res != CURLE_OK) {
+    log_error("Request to Pastebin's servers failed: %s\n", curl_easy_strerror(res));
+    success = false;
+  }
+
+  free(buffer);
+  free(encoded_buffer);
+  curl_easy_cleanup(curl);
+
+  return success;
+}
+
 int main(int argc, char **argv) {
   struct arguments arguments;
 
+  arguments.file = "";
   arguments.filetype = "";
   arguments.use_editor = false;
 
   argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
-  int buffer_size = 16;
-  char *data = (char*) malloc(buffer_size);
-  int string_size = 0;
-  for(char c = getchar(); c != EOF; c = getchar()) {
-    data[string_size] = c;
-    if (string_size == buffer_size - 1) {
-      buffer_size += buffer_size;
-      data = (char*) realloc(data, buffer_size);
-      if (data == 0) {
-        log_error("Out of memory");
-        return 1;
-      }
-    }
-    string_size++;
+  if (strlen(arguments.file) == 0) {
+    log_error("A file is required.");
+    return 1;
   }
 
-  CURL *curl = curl_easy_init();
-  if (curl) {
-    // url encode data
-    char *url_encoded_data = curl_easy_escape(curl, data, string_size);
-    char *post_data = (char*) malloc(77 + strlen(url_encoded_data));
-    sprintf(post_data, "api_dev_key=" API_DEV_KEY "&api_option=paste&api_paste_code=%s", url_encoded_data);
+  FILE *fp = fopen(arguments.file, "r");
 
-    curl_easy_setopt(curl, CURLOPT_URL, "https://pastebin.com/api/api_post.php");
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-      log_error("Request to Pastebin's servers failed: %s\n", curl_easy_strerror(res));
-    }
-
-    curl_easy_cleanup(curl);
+  if (fp == NULL) {
+    log_error("Could not find file \"%s\"", arguments.file);
+    return 1;
   }
-  printf("\n");
-  curl_global_cleanup();
+
+  bool res = upload_file(fp, "txt");
+
   return 0;
 }
+
