@@ -82,6 +82,36 @@ static bool upload_file(FILE *stream, char *filetype) {
   return success;
 }
 
+static char *guess_filetype(char *filename) {
+  char c;
+
+  bool in_filetype;
+  char *filetype_buffer = malloc(sizeof(char) * strlen(filename));
+  unsigned int i = 0;
+
+  while ((c = *filename++) != '\0') {
+    if (c == '.') {
+      if (in_filetype) {
+        i = 0;
+      }
+      else {
+        in_filetype = true;
+      }
+    } else if (in_filetype) {
+      filetype_buffer[i] = c;
+      i++;
+    }
+  }
+
+  filetype_buffer[i+1] = '\0';
+
+  if (in_filetype == false) {
+    return NULL;
+  }
+
+  return filetype_buffer;
+}
+
 int main(int argc, char **argv) {
   struct arguments arguments;
 
@@ -96,6 +126,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  char *filetype = guess_filetype(arguments.file);
+
+  if (filetype == NULL) {
+    log_warning("Could not guess filetype from filename, defaulting to \"txt\"");
+    filetype = "txt";
+  }
+
   FILE *fp = fopen(arguments.file, "r");
 
   if (fp == NULL) {
@@ -103,7 +140,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  bool res = upload_file(fp, "txt");
+  bool res = upload_file(fp, filetype);
 
   return 0;
 }
